@@ -1601,7 +1601,6 @@ function parseV2raynClashProxy(url) {
             } else if (tlsEnabled) {
                 proxy.tls = true;
             }
-            if (config.Fingerprint) proxy['client-fingerprint'] = String(config.Fingerprint);
             break;
         }
         case 'anytls': {
@@ -1623,6 +1622,10 @@ function parseV2raynClashProxy(url) {
     if (config.Sni) {
         proxy.servername = String(config.Sni);
         proxy.sni = String(config.Sni);
+    }
+    // uTLS 指纹（vless/anytls 等载荷携带）
+    if (config.Fingerprint) {
+        proxy['client-fingerprint'] = String(config.Fingerprint);
     }
     if (shouldSkipCertVerify) {
         proxy['skip-cert-verify'] = true;

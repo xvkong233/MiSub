@@ -67,6 +67,7 @@ const anytlsCfg = {
     Password: 'pass-anytls',
     StreamSecurity: 'tls',
     Sni: 'example.com',
+    Fingerprint: 'chrome',
 };
 const naiveCfg = {
     ConfigType: 12,
@@ -120,11 +121,12 @@ describe('v2rayn:// → Clash (mihomo) 转换', () => {
         expect(p.servername).toBe('example.com');
     });
 
-    it('anytls：password/sni', () => {
+    it('anytls：password/sni/uTLS指纹', () => {
         const p = urlToClashProxy(makeV2raynUrl('anytls', anytlsCfg));
         expect(p.type).toBe('anytls');
         expect(p.password).toBe('pass-anytls');
         expect(p.sni).toBe('example.com');
+        expect(p['client-fingerprint']).toBe('chrome');
     });
 
     it('自签证书载荷应输出 skip-cert-verify（mihomo 无法内嵌 PEM）', () => {
