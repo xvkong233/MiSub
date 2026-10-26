@@ -3,6 +3,7 @@
  */
 
 import { extractNodeMetadata } from '../modules/utils/metadata-extractor.js';
+import { decodeV2raynNodeUrl } from '../modules/utils/v2rayn-utils.js';
 import { isLocalProxyEndpoint } from './node-utils.js';
 
 const VIRTUAL_INFO_NODE_PASSWORD = '00000000-0000-0000-0000-000000000000';
@@ -1485,6 +1486,151 @@ function parseSsdUrl(url) {
  * @param {string} url - 节点 URL
  * @returns {Object|null} Clash 代理对象
  */
+/**
+ * 解析 v2rayN 专有分享格式（v2rayn://）为 Clash (mihomo) 代理对象
+ * 载荷为 JSON 序列化的 v2rayN ProfileItem，字段与标准 URI 不同：
+ * - hysteria2: Password / Sni / ProtoExtraObj{UpMbps,DownMbps}
+ * - tuic: Username(uuid) / Password / Sni / Alpn / ProtoExtraObj{CongestionControl}
+ * - trojan: Password / Sni
+ * - vless: Password(uuid) / Network / StreamSecurity(reality|tls) / Sni / Fingerprint / PublicKey
+ * - anytls: Password / Sni / Fingerprint
+ * - naive: mihomo 内核不支持 naive 出站，无法转换
+ */
+function parseV2raynClashProxy(url) {
+    const decoded = decodeV2raynNodeUrl(url);
+    if (!decoded) return null;
+
+    const { protocol, config } = decoded;
+    const server = String(config.Address || '');
+    const port = Number(config.Port);
+    if (!server || !port) return null;
+
+    const name = String(config.Remarks || '').trim() || `${protocol}-${server}`;
+    // 面板自带自签证书时，mihomo 无法内嵌 PEM 证书做 pinning，
+    // 此时与 AllowInsecure=true 同等处理，否则节点无法通过 TLS 校验
+    const shouldSkipCertVerify =
+        config.AllowInsecure === true ||
+        config.AllowInsecure === 'true' ||
+        config.AllowInsecure === 1 ||
+        config.AllowInsecure === '1' ||
+        Boolean(config.Cert);
+
+    // v2rayN 的 Network 用 "raw" 表示 tcp；ws/grpc 等传输层需要附加 opts
+    const rawNetwork = String(config.Network || '').toLowerCase();
+    const network = rawNetwork === 'raw' ? 'tcp' : rawNetwork;
+
+    const tlsEnabled =
+        String(config.StreamSecurity || '').toLowerCase() === 'tls' ||
+        String(config.StreamSecurity || '').toLowerCase() === 'reality';
+
+    let proxy = null;
+
+    switch (protocol) {
+        case 'hysteria2': {
+            proxy = {
+                name,
+                type: 'hysteria2',
+                server,
+                port,
+                password: String(config.Password || ''),
+                // Stash 使用 auth 字段而非 password，双字段兼容
+                auth: String(config.Password || ''),
+            };
+            const extra = config.ProtoExtraObj || {};
+            if (extra.UpMbps) proxy.up = `${extra.UpMbps} Mbps`;
+            if (extra.DownMbps) proxy.down = `${extra.DownMbps} Mbps`;
+            break;
+        }
+        case 'tuic': {
+            proxy = {
+                name,
+                type: 'tuic',
+                server,
+                port,
+                uuid: String(config.Username || config.Id || ''),
+                password: String(config.Password || ''),
+                udp: true,
+            };
+            if (config.Alpn) {
+                proxy.alpn = String(config.Alpn)
+                    .split(',')
+                    .map((item) => item.trim())
+                    .filter(Boolean);
+            }
+            const congestion = config.ProtoExtraObj?.CongestionControl || config.CongestionControl;
+            if (congestion) proxy['congestion-controller'] = String(congestion);
+            break;
+        }
+        case 'trojan': {
+            proxy = {
+                name,
+                type: 'trojan',
+                server,
+                port,
+                password: String(config.Password || config.Id || ''),
+            };
+            break;
+        }
+        case 'vless': {
+            proxy = {
+                name,
+                type: 'vless',
+                server,
+                port,
+                uuid: String(config.Id || config.Password || ''),
+            };
+            if (config.Flow) proxy.flow = String(config.Flow);
+            if (network && network !== 'tcp') proxy.network = network;
+            if (network === 'ws') {
+                const wsOpts = {};
+                if (config.Path) wsOpts.path = String(config.Path);
+                const host = config.RequestHost || config.Host;
+                if (host) wsOpts.headers = { Host: String(host) };
+                if (Object.keys(wsOpts).length > 0) proxy['ws-opts'] = wsOpts;
+            } else if (network === 'grpc') {
+                const grpcOpts = {};
+                if (config.Path) grpcOpts['grpc-service-name'] = String(config.Path);
+                if (Object.keys(grpcOpts).length > 0) proxy['grpc-opts'] = grpcOpts;
+            }
+            if (String(config.StreamSecurity || '').toLowerCase() === 'reality') {
+                proxy.tls = true;
+                const realityOpts = {};
+                if (config.PublicKey) realityOpts['public-key'] = String(config.PublicKey);
+                if (config.ShortId) realityOpts['short-id'] = String(config.ShortId);
+                if (Object.keys(realityOpts).length > 0) proxy['reality-opts'] = realityOpts;
+            } else if (tlsEnabled) {
+                proxy.tls = true;
+            }
+            if (config.Fingerprint) proxy['client-fingerprint'] = String(config.Fingerprint);
+            break;
+        }
+        case 'anytls': {
+            proxy = {
+                name,
+                type: 'anytls',
+                server,
+                port,
+                password: String(config.Password || ''),
+            };
+            break;
+        }
+        default:
+            // naive 及其他 mihomo 不支持的协议无法转换
+            return null;
+    }
+
+    // SNI（hysteria2/tuic/vless/trojan/anytls 通用）
+    if (config.Sni) {
+        proxy.servername = String(config.Sni);
+        proxy.sni = String(config.Sni);
+    }
+    if (shouldSkipCertVerify) {
+        proxy['skip-cert-verify'] = true;
+    }
+
+    return proxy;
+}
+
 export function urlToClashProxy(url) {
     if (!url || typeof url !== 'string') return null;
 
@@ -1495,7 +1641,9 @@ export function urlToClashProxy(url) {
             const beforeHash = hashIndex < 0 ? body : body.slice(0, hashIndex);
             const queryIndex = beforeHash.indexOf('?');
             const authority = queryIndex < 0 ? beforeHash : beforeHash.slice(0, queryIndex);
-            const query = new URLSearchParams(queryIndex < 0 ? '' : beforeHash.slice(queryIndex + 1));
+            const query = new URLSearchParams(
+                queryIndex < 0 ? '' : beforeHash.slice(queryIndex + 1)
+            );
             let server;
             let port;
             if (authority.startsWith('[')) {
@@ -1507,15 +1655,28 @@ export function urlToClashProxy(url) {
                 server = authority.slice(0, split);
                 port = Number(authority.slice(split + 1));
             }
-            const proxy = { name: extractName(url) || `Mieru-${server}`, type: 'mieru', server, port };
-            for (const key of ['username', 'password', 'transport', 'handshake-mode', 'profile']) if (query.has(key)) proxy[key] = query.get(key);
-            for (const key of ['udp', 'multiplexing']) if (query.has(key)) proxy[key] = query.get(key) === 'true';
+            const proxy = {
+                name: extractName(url) || `Mieru-${server}`,
+                type: 'mieru',
+                server,
+                port,
+            };
+            for (const key of ['username', 'password', 'transport', 'handshake-mode', 'profile'])
+                if (query.has(key)) proxy[key] = query.get(key);
+            for (const key of ['udp', 'multiplexing'])
+                if (query.has(key)) proxy[key] = query.get(key) === 'true';
             if (query.has('mtu')) proxy.mtu = Number(query.get('mtu'));
             return proxy;
-        } catch { return null; }
+        } catch {
+            return null;
+        }
     }
 
     const lowerUrl = url.toLowerCase();
+
+    if (lowerUrl.startsWith('v2rayn://')) {
+        return parseV2raynClashProxy(url);
+    }
 
     if (lowerUrl.startsWith('vless://')) {
         return parseVlessUrl(url);
