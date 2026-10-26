@@ -3,6 +3,9 @@
  * 负责节点URL的解码、修复、重命名和过滤
  */
 
+import { isV2raynUrl, renameV2raynNodeUrl } from './v2rayn-utils.js';
+
+/**
 /**
  * 修复节点URL编码问题（支持多种协议）
  * @param {string} nodeUrl
@@ -310,6 +313,11 @@ export function applyManualNodeName(nodeUrl, customName) {
     if (!customName || !nodeUrl) return nodeUrl;
 
     const encodedName = encodeURIComponent(customName);
+
+    // v2rayn:// 的名称在 Base64 载荷的 Remarks 字段，改写载荷而不是拼接 # 片段
+    if (isV2raynUrl(nodeUrl)) {
+        return renameV2raynNodeUrl(nodeUrl, customName);
+    }
 
     if (nodeUrl.startsWith('vmess://')) {
         try {

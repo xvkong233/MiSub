@@ -19,6 +19,7 @@ import { runOperatorChain } from '../utils/operator-runner.js';
 import { createTimeoutFetch } from '../modules/utils.js';
 import { assertPublicNetworkUrl } from '../modules/security-utils.js';
 import { isSuspiciousNodeCountDrop } from './node-cache-service.js';
+import { isV2raynUrl, renameV2raynNodeUrl } from '../modules/utils/v2rayn-utils.js';
 
 /**
  * 订阅获取配置常量
@@ -50,6 +51,7 @@ const REAL_PROXY_PROTOCOLS = [
     'naive+quic://',
     'wireguard://',
     'mierus://',
+    'v2rayn://',
 ];
 
 /**
@@ -713,7 +715,11 @@ export async function generateCombinedNodeList(
     const processedManualNodeList = manualProcessedLines.join('\n');
 
     const httpSubs = misubs.filter(
-        (sub) => sub && sub.url && /^https?:\/\//i.test(sub.url) && !/^https?:\/\/[^/?#]+:\d+\/?#/i.test(sub.url)
+        (sub) =>
+            sub &&
+            sub.url &&
+            /^https?:\/\//i.test(sub.url) &&
+            !/^https?:\/\/[^/?#]+:\d+\/?#/i.test(sub.url)
     );
     const limiter = createConcurrencyLimiter(FETCH_CONFIG.CONCURRENCY);
     let upstreamSuccessCount = 0; // 追踪真正从远程拉取成功的订阅数（不含 per-sub 缓存回退）
@@ -1075,6 +1081,11 @@ async function decodeBase64Content(text) {
  */
 function applyManualNodeName(nodeUrl, customName) {
     if (!customName) return nodeUrl;
+
+    // v2rayn:// 的名称在 Base64 载荷的 Remarks 字段，改写载荷而不是拼接 # 片段
+    if (isV2raynUrl(nodeUrl)) {
+        return renameV2raynNodeUrl(nodeUrl, customName);
+    }
 
     // vmess 协议：修改 base64 解码后 JSON 中的 ps 字段
     if (nodeUrl.startsWith('vmess://')) {

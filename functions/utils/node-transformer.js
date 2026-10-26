@@ -11,6 +11,7 @@ import {
     REGION_EMOJI,
 } from '../modules/utils/geo-utils.js';
 import { extractNodeMetadata } from '../modules/utils/metadata-extractor.js';
+import { isV2raynUrl, renameV2raynNodeUrl } from '../modules/utils/v2rayn-utils.js';
 import { base64EncodeUtf8 } from '../modules/utils.js';
 import { evaluateDslExpression, renderDslTemplate } from './expression-dsl.js';
 
@@ -339,6 +340,13 @@ export function setNodeName(url, protocol, newName) {
     const proto = String(protocol || '').toLowerCase();
 
     try {
+        // 按 URL 本身判断 v2rayn 格式：record.protocol 可能已被 parseNodeInfo
+        // 改写为内层协议（hysteria2/tuic 等），不能只依赖协议参数
+        if (proto === 'v2rayn' || isV2raynUrl(url)) {
+            // v2rayN 专有格式：名称在 Base64 载荷的 Remarks 字段，改写载荷而不是拼接 # 片段
+            return renameV2raynNodeUrl(url, newName);
+        }
+
         if (proto === 'vmess') {
             let base64Part = url.replace('vmess://', '');
             // 处理 URL-Safe Base64

@@ -3,6 +3,8 @@
  * 提供节点地区识别和相关功能
  */
 
+import { decodeV2raynNodeUrl } from './v2rayn-utils.js';
+
 /**
  * 地区关键词映射表
  * 支持多语言地区识别
@@ -644,7 +646,9 @@ export function parseNodeInfo(nodeUrl) {
 
     // 提取协议
     const protocolMatch = nodeUrl.match(/^(.*?):\/\//);
-    const protocol = protocolMatch ? protocolMatch[1].toLowerCase() : 'unknown';
+    // v2rayn:// 是 v2rayN 的专有外壳格式，实际协议以载荷内的 ConfigType 为准，
+    // 在下方专门的分支中改写为内层协议（hysteria2/tuic/trojan 等）
+    let protocol = protocolMatch ? protocolMatch[1].toLowerCase() : 'unknown';
 
     // 提取节点名称
     let nodeName = '';
@@ -856,6 +860,19 @@ export function parseNodeInfo(nodeUrl) {
                         port = parts[1];
                     }
                 }
+            }
+        } else if (protocol === 'v2rayn') {
+            // v2rayN 专有格式: v2rayn://<协议>/<Base64(ProfileItem JSON)>
+            // 名称在 Remarks 字段，协议改写为内层协议以便统计与地区识别
+            const decoded = decodeV2raynNodeUrl(nodeUrl);
+            if (decoded) {
+                if (decoded.protocol) protocol = decoded.protocol.toLowerCase();
+                if (decoded.config?.Remarks) nodeName = String(decoded.config.Remarks);
+                else nodeName = `${decoded.protocol || 'v2rayn'} 节点`;
+                server = String(decoded.config?.Address ?? '');
+                port = String(decoded.config?.Port ?? '');
+            } else {
+                nodeName = 'v2rayn 节点';
             }
         } else {
             // 通用格式: protocol://user@host:port... 或 protocol://host:port...
