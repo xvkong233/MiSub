@@ -1,8 +1,12 @@
 name: Fork Sync
 
+# ⚠️ 已禁用定时触发（2026-10-28）：
+# 此工作流以镜像模式同步（reset --hard + force push），会把 main 上
+# 所有本地提交（如 v2rayn:// 解析修复）在每次运行时静默丢弃，
+# 导致 Cloudflare Pages 自动回滚到未修复的版本。
+# 如需恢复镜像同步，请先把本地定制迁移到独立分支并让 Pages 跟踪该分支，
+# 或改用 merge 策略（参考 sync-upstream.yml）。目前仅保留手动触发。
 on:
-  schedule:
-    - cron: "0 22 * * *"     # 每天北京时间 06:00 执行
   workflow_dispatch:
 
 permissions:
