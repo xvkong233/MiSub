@@ -1,12 +1,14 @@
 name: Fork Sync
 
-# ⚠️ 已禁用定时触发（2026-10-28）：
-# 此工作流以镜像模式同步（reset --hard + force push），会把 main 上
-# 所有本地提交（如 v2rayn:// 解析修复）在每次运行时静默丢弃，
-# 导致 Cloudflare Pages 自动回滚到未修复的版本。
-# 如需恢复镜像同步，请先把本地定制迁移到独立分支并让 Pages 跟踪该分支，
-# 或改用 merge 策略（参考 sync-upstream.yml）。目前仅保留手动触发。
+# 同步策略（2026-10-28 起改为合并模式）：
+# 原镜像模式（reset --hard + force push）会把 main 上的本地提交
+# （如 v2rayn:// 解析修复）在每次运行时静默丢弃，导致 Pages 回滚。
+# 现改为 merge 合并上游，本地提交始终保留；
+# 若合并产生冲突则中止并保持 main 不变，需手动处理后重跑。
+
 on:
+  schedule:
+    - cron: "0 22 * * *"     # 每天北京时间 06:00 执行
   workflow_dispatch:
 
 permissions:
@@ -15,7 +17,7 @@ permissions:
 
 jobs:
   sync_with_upstream:
-    name: Sync with Upstream
+    name: Sync with Upstream (merge)
     runs-on: ubuntu-latest
     if: ${{ github.event.repository.fork }}
 
@@ -54,7 +56,7 @@ jobs:
           git fetch --prune origin main
           git fetch --prune upstream main
 
-      - name: Mirror upstream main
+      - name: Merge upstream main (保留本地提交)
         env:
           SYNC_PAT: ${{ secrets.SYNC_PAT }}
         run: |
@@ -68,15 +70,17 @@ jobs:
             exit 0
           fi
 
-          if [ -z "${SYNC_PAT:-}" ]; then
-            WORKFLOW_DIFF="$(git diff --name-only "${ORIGIN_SHA}" "${UPSTREAM_SHA}" -- .github/workflows || true)"
-            if [ -n "${WORKFLOW_DIFF}" ]; then
-              echo "::notice title=Fork Sync skipped::上游包含 workflow 文件变更，默认 GITHUB_TOKEN 不能创建或更新 workflow 文件。请在 fork 仓库配置 secret：SYNC_PAT（repo + workflow 权限）后手动重新运行，或在网页使用 Sync fork / Discard commits 对齐上游。"
-              exit 0
-            fi
+          if git merge-base --is-ancestor "${UPSTREAM_SHA}" "${ORIGIN_SHA}"; then
+            echo "✨ 上游已包含于本地 main，本地更新更多，无需同步。"
+            exit 0
           fi
 
-          echo "🚀 正在镜像上游 main，fork 本地 main 上的额外提交会被丢弃。"
-          git reset --hard upstream/main
-          git push --force-with-lease origin main
-          echo "✅ Fork main 已镜像到上游 main。"
+          echo "🔁 开始合并上游 main（本地提交保留）..."
+          if git merge upstream/main --no-edit; then
+            git push origin main
+            echo "✅ 已合并并推送上游更新，本地提交均已保留。Cloudflare Pages 将自动重新构建。"
+          else
+            git merge --abort || true
+            echo "::error title=合并冲突::合并上游 imzyb/MiSub 时产生冲突，已中止，本地 main 保持不变。请手动合并解决冲突后推送。"
+            exit 1
+          fi
