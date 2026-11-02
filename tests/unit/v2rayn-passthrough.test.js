@@ -95,24 +95,35 @@ describe('v2rayn:// 分享格式透传', () => {
     });
 
     describe('extractValidNodes / parseNodeList', () => {
-        it('base64 订阅中的 v2rayn:// 节点不应被丢弃', () => {
+        it('base64 订阅中的 v2rayn:// 节点不应被丢弃（转换 + 透传）', () => {
             const encoded = Buffer.from(plainUpstream, 'utf-8').toString('base64');
             const nodes = extractValidNodes(encoded);
-            const v2raynNodes = nodes.filter((n) => n.startsWith('v2rayn://'));
 
-            expect(v2raynNodes).toHaveLength(5);
+            // 可转换协议转为标准 URI，naive（mihomo 无出站）透传保留
+            const v2raynNodes = nodes.filter((n) => n.startsWith('v2rayn://'));
+            expect(v2raynNodes).toHaveLength(1);
+            expect(v2raynNodes[0]).toContain('naive');
+            expect(nodes.filter((n) => n.startsWith('hysteria2://'))).toHaveLength(1);
+            expect(nodes.filter((n) => n.startsWith('tuic://'))).toHaveLength(1);
+            expect(nodes.filter((n) => n.startsWith('trojan://'))).toHaveLength(1);
+            expect(nodes.filter((n) => n.startsWith('anytls://'))).toHaveLength(1);
             expect(nodes).toHaveLength(9);
         });
 
-        it('parseNodeList 应保留 v2rayn 节点且 URL 原样透传', () => {
+        it('parseNodeList 应保留全部节点（转换后名称/服务器正确）', () => {
             const parsed = parseNodeList(plainUpstream);
-            const hysteria2 = parsed.find((n) => n.url === v2raynHysteria2);
+            const hysteria2 = parsed.find((n) => n.protocol === 'hysteria2');
 
             expect(hysteria2).toBeTruthy();
-            expect(hysteria2.protocol).toBe('hysteria2');
             expect(hysteria2.name).toBe('US精品 hysteria2');
             expect(hysteria2.server).toBe('156.238.228.228');
             expect(hysteria2.port).toBe('8443');
+
+            // naive 无法转换，透传保留且名称可从 Remarks 解出
+            const naive = parsed.find((n) => n.url.startsWith('v2rayn://'));
+            expect(naive).toBeTruthy();
+            expect(naive.protocol).toBe('naive');
+            expect(naive.name).toBe('US精品 naive http2');
             expect(parsed).toHaveLength(9);
         });
 

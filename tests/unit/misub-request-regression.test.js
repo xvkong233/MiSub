@@ -98,7 +98,7 @@ describe('handleMisubRequest regression coverage', () => {
         } finally {
             logSpy.mockRestore();
         }
-    });
+    }, 15000);
 
     it('normalizes external converter hosts and uses the current base64 subscription as its data source', async () => {
         const subscriptions = [

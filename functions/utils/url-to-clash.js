@@ -5,6 +5,7 @@
 import { extractNodeMetadata } from '../modules/utils/metadata-extractor.js';
 import { decodeV2raynNodeUrl } from '../modules/utils/v2rayn-utils.js';
 import { isLocalProxyEndpoint } from './node-utils.js';
+import { parseXhttpExtra, applyDownloadInheritanceGuard } from './xhttp-extra.js';
 
 const VIRTUAL_INFO_NODE_PASSWORD = '00000000-0000-0000-0000-000000000000';
 
@@ -192,46 +193,27 @@ function parseVlessUrl(url) {
                 xhttpOpts.mode = params.get('mode');
             }
 
-            /*
-             * Xray XHTTP 分享链接中的高级参数通常保存在 extra JSON 中：
-             *
-             * extra={
-             *   "xPaddingObfsMode": true,
-             *   "xPaddingMethod": "tokenish",
-             *   "xPaddingPlacement": "queryInHeader",
-             *   "xPaddingHeader": "...",
-             *   "xPaddingKey": "..."
-             * }
-             *
-             * 转换为 Mihomo / Clash Meta 的 xhttp-opts 字段。
-             */
-            const extraRaw = params.get('extra');
-
-            if (extraRaw) {
+            const extraParam = params.get('extra');
+            if (extraParam) {
                 try {
-                    const extra = JSON.parse(extraRaw);
-
-                    if (Object.prototype.hasOwnProperty.call(extra, 'xPaddingObfsMode')) {
-                        xhttpOpts['x-padding-obfs-mode'] = extra.xPaddingObfsMode;
-                    }
-
-                    if (Object.prototype.hasOwnProperty.call(extra, 'xPaddingMethod')) {
-                        xhttpOpts['x-padding-method'] = extra.xPaddingMethod;
-                    }
-
-                    if (Object.prototype.hasOwnProperty.call(extra, 'xPaddingPlacement')) {
-                        xhttpOpts['x-padding-placement'] = extra.xPaddingPlacement;
-                    }
-
-                    if (Object.prototype.hasOwnProperty.call(extra, 'xPaddingHeader')) {
-                        xhttpOpts['x-padding-header'] = extra.xPaddingHeader;
-                    }
-
-                    if (Object.prototype.hasOwnProperty.call(extra, 'xPaddingKey')) {
-                        xhttpOpts['x-padding-key'] = extra.xPaddingKey;
+                    const extraFields = parseXhttpExtra(JSON.parse(extraParam));
+                    const { headers: extraHeaders, ...rest } = extraFields;
+                    Object.assign(xhttpOpts, rest);
+                    // URL 的 host 参数是分享链接的显式声明，优先级高于 extra 里的同名头；
+                    // HTTP 头名大小写不敏感，小写 host 也要让位，避免同一头出现两份。
+                    if (extraHeaders) {
+                        const mergedHeaders = { ...extraHeaders };
+                        if (xhttpOpts.headers?.Host) {
+                            for (const key of Object.keys(mergedHeaders)) {
+                                if (key.toLowerCase() === 'host') {
+                                    delete mergedHeaders[key];
+                                }
+                            }
+                        }
+                        xhttpOpts.headers = { ...mergedHeaders, ...(xhttpOpts.headers || {}) };
                     }
                 } catch (e) {
-                    // extra 非法时不能让整个订阅转换失败
+                    // extra 非法时不能让整个订阅转换失败。
                     console.warn('[MiSub] XHTTP extra 参数解析失败:', e);
                 }
             }
@@ -322,6 +304,14 @@ function parseVlessUrl(url) {
         // [重要] dialer-proxy 链式代理
         if (params.get('dp')) {
             proxy['dialer-proxy'] = params.get('dp');
+        }
+
+        const xhttpOpts = proxy['xhttp-opts'];
+        if (xhttpOpts) {
+            const upstreamPublicKey = proxy['reality-opts'] && proxy['reality-opts']['public-key'];
+            applyDownloadInheritanceGuard(xhttpOpts, {
+                upstreamReality: typeof upstreamPublicKey === 'string' && upstreamPublicKey !== '',
+            });
         }
 
         return proxy;
@@ -778,10 +768,11 @@ function parseHysteria2Url(url) {
             auth: password,
         };
 
-        // SNI
-        if (params.get('sni')) {
-            proxy.servername = params.get('sni');
-            proxy.sni = params.get('sni');
+        // SNI（兼容 Shadowrocket 的 peer 参数）
+        const sniParam = params.get('sni') || params.get('peer');
+        if (sniParam) {
+            proxy.servername = sniParam;
+            proxy.sni = sniParam;
         }
 
         // Skip cert verify
@@ -794,6 +785,10 @@ function parseHysteria2Url(url) {
         if (handshakeTimeout) {
             proxy['handshake-timeout'] = parseInt(handshakeTimeout, 10);
         }
+
+        // 证书指纹固定（兼容 pinSHA256 / hpkp / fingerprint），自签证书场景必需
+        const pinParam = params.get('pinSHA256') || params.get('hpkp') || params.get('fingerprint');
+        if (pinParam) proxy.fingerprint = pinParam;
 
         // Obfs
         if (params.get('obfs')) {
@@ -809,6 +804,9 @@ function parseHysteria2Url(url) {
         if (params.get('hop-interval')) proxy['hop-interval'] = params.get('hop-interval');
         if (params.get('up')) proxy.up = params.get('up');
         if (params.get('down')) proxy.down = params.get('down');
+        // 兼容 Shadowrocket / v2rayN 的 upmbps / downmbps
+        if (!proxy.up && params.get('upmbps')) proxy.up = `${params.get('upmbps')} Mbps`;
+        if (!proxy.down && params.get('downmbps')) proxy.down = `${params.get('downmbps')} Mbps`;
         const fastOpen = params.get('fast_open') || params.get('fast-open');
         if (fastOpen === '1' || fastOpen === 'true') {
             proxy['fast-open'] = true;
@@ -1677,42 +1675,57 @@ export function urlToClashProxy(url) {
 
     const lowerUrl = url.toLowerCase();
 
+    let proxy;
     if (lowerUrl.startsWith('v2rayn://')) {
-        return parseV2raynClashProxy(url);
-    }
-
-    if (lowerUrl.startsWith('vless://')) {
-        return parseVlessUrl(url);
+        proxy = parseV2raynClashProxy(url);
+    } else if (lowerUrl.startsWith('vless://')) {
+        proxy = parseVlessUrl(url);
     } else if (lowerUrl.startsWith('trojan://')) {
-        return parseTrojanUrl(url);
+        proxy = parseTrojanUrl(url);
     } else if (lowerUrl.startsWith('vmess://')) {
-        return parseVmessUrl(url);
+        proxy = parseVmessUrl(url);
     } else if (lowerUrl.startsWith('ssr://')) {
-        return parseSsrUrl(url);
+        proxy = parseSsrUrl(url);
     } else if (lowerUrl.startsWith('ssd://')) {
-        return parseSsdUrl(url);
+        proxy = parseSsdUrl(url);
     } else if (lowerUrl.startsWith('ss://')) {
-        return parseSsUrl(url);
+        proxy = parseSsUrl(url);
     } else if (lowerUrl.startsWith('hysteria2://') || lowerUrl.startsWith('hy2://')) {
-        return parseHysteria2Url(url);
+        proxy = parseHysteria2Url(url);
     } else if (lowerUrl.startsWith('tuic://')) {
-        return parseTuicUrl(url);
+        proxy = parseTuicUrl(url);
     } else if (lowerUrl.startsWith('snell://')) {
-        return parseSnellUrl(url);
+        proxy = parseSnellUrl(url);
     } else if (lowerUrl.startsWith('wireguard://')) {
-        return parseWireguardUrl(url);
+        proxy = parseWireguardUrl(url);
     } else if (lowerUrl.startsWith('anytls://')) {
-        return parseAnytlsUrl(url);
+        proxy = parseAnytlsUrl(url);
     } else if (lowerUrl.startsWith('https://')) {
-        return parseHttpsUrl(url);
+        proxy = parseHttpsUrl(url);
     } else if (lowerUrl.startsWith('http://')) {
-        return parseHttpsUrl(url, false);
+        proxy = parseHttpsUrl(url, false);
     } else if (lowerUrl.startsWith('socks5://')) {
-        return parseSocks5Url(url);
+        proxy = parseSocks5Url(url);
+    } else {
+        // 不支持的协议
+        return null;
     }
 
-    // 不支持的协议
-    return null;
+    if (!proxy) return null;
+
+    // 证书锁定与 uTLS 指纹：各协议分享链接的通用参数，统一在此兜底处理。
+    // pinSHA256 来自 v2rayn:// 转换链路（对自签证书做指纹锁定而非跳过校验）
+    const commonParams = parseQueryParams(url);
+    const pin = commonParams.get('pinSHA256') || commonParams.get('pin_sha256');
+    if (pin && !proxy.fingerprint) {
+        proxy.fingerprint = pin.replace(/:/g, '').toUpperCase();
+    }
+    const fp = commonParams.get('fp');
+    if (fp && !proxy['client-fingerprint']) {
+        proxy['client-fingerprint'] = fp;
+    }
+
+    return proxy;
 }
 
 /**
