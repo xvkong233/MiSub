@@ -16,6 +16,7 @@ import {
     DEFAULT_SELECT_GROUP,
     DEFAULT_RELAY_GROUP,
     pruneProxyGroups,
+    GEOX_URLS,
 } from './builtin-rules-provider.js';
 import yaml from 'js-yaml';
 
@@ -227,6 +228,10 @@ export function generateBuiltinClashConfig(nodeList, options = {}) {
             mode: 'rule',
             'log-level': 'info',
             'external-controller': '127.0.0.1:9090',
+
+            // GEOIP/GEOSITE 规则与 geosite:* DNS 策略依赖的 geo 数据库改走 jsDelivr 镜像，
+            // 避免默认 GitHub 地址在大陆不可达时 GEOIP,CN,DIRECT 静默失效、国内流量走代理
+            'geox-url': { ...GEOX_URLS },
 
             dns: dnsConfig,
 

@@ -3,6 +3,7 @@ import { clashFix } from '../../../utils/format-utils.js';
 import { normalizeUnifiedTemplateModel } from '../template-model.js';
 import { DNS_PROXY_GROUP, resolveSafeDnsConfig } from '../safe-dns.js';
 import { applyMihomoChainProxy } from '../mihomo-chain-proxy.js';
+import { GEOX_URLS } from '../builtin-rules-provider.js';
 
 function mapGroupType(type) {
     const normalized = String(type || '')
@@ -59,6 +60,22 @@ const ACL4SSR_IPCIDR_PROVIDER_FILES = new Set([
     'chinaipv6',
     'netflixip',
 ]);
+
+// Loyalsoldier clash-rules release 分支的文本列表：payload 是纯域名/纯 CIDR 集合，
+// 必须按 domain/ipcidr 行为加载，按 classical 解析会直接失败
+const LOYALSOLDIER_DOMAIN_FILES = new Set([
+    'apple',
+    'direct',
+    'gfw',
+    'google',
+    'greatfire',
+    'icloud',
+    'private',
+    'proxy',
+    'reject',
+    'tld-not-cn',
+]);
+const LOYALSOLDIER_IPCIDR_FILES = new Set(['cncidr', 'cn-cidr', 'lan', 'telegramcidr']);
 
 // ACL4SSR root list files that should stay as text providers because their YAML provider is missing
 // or does not preserve the effective raw .list rule coverage.
@@ -158,6 +175,8 @@ function getRuleProviderBehavior(providerUrl) {
                 .pop()
                 ?.replace(/\.(yaml|yml|list|txt|conf)$/i, '') || '';
         if (ACL4SSR_IPCIDR_PROVIDER_FILES.has(fileName.toLowerCase())) return 'ipcidr';
+        if (LOYALSOLDIER_IPCIDR_FILES.has(fileName.toLowerCase())) return 'ipcidr';
+        if (LOYALSOLDIER_DOMAIN_FILES.has(fileName.toLowerCase())) return 'domain';
     } catch {
         // ignore invalid provider url shapes and keep default behavior
     }
@@ -235,6 +254,8 @@ export function renderClashFromTemplateModel(model) {
         mode: 'rule',
         'log-level': 'info',
         'external-controller': '127.0.0.1:9090',
+        // GEO 数据库走 jsDelivr 镜像，保证模板中 GEOIP/GEOSITE 规则与 geosite:* DNS 策略在大陆可用
+        'geox-url': { ...GEOX_URLS },
         dns: resolveSafeDnsConfig(normalizedModel.settings?.customDnsOverride, {
             mode: normalizedModel.settings?.dnsMode,
             proxyGroup: DNS_PROXY_GROUP,

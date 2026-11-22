@@ -477,6 +477,30 @@ const ACL4SSR_BASE = `https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/${PINNED
 const SING_GEOSITE_BASE = `https://raw.githubusercontent.com/SagerNet/sing-geosite/${PINNED_RULE_REVISIONS.SING_GEOSITE}`;
 const SING_GEOIP_BASE = `https://raw.githubusercontent.com/SagerNet/sing-geoip/${PINNED_RULE_REVISIONS.SING_GEOIP}`;
 
+// jsDelivr 已按合规要求整体封禁 ACL4SSR 仓库（对所有请求返回 403 提示文本），
+// 因此 Clash/Surge 系远程规则改用 blackmatrix7 / Loyalsoldier 维护的规则集。
+const BLACKMATRIX_BASE = `https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script/${PINNED_RULE_REVISIONS.BLACKMATRIX}`;
+// Loyalsoldier 的 release 分支是作者每日构建的滚动发布通道（jsDelivr 可直连），
+// 规则数据需要保持新鲜（如新增的国内域名），因此刻意不锁定修订号。
+const LOYALSOLDIER_CLASH_BASE = 'https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release';
+const LOYALSOLDIER_SURGE_BASE = 'https://cdn.jsdelivr.net/gh/Loyalsoldier/surge-rules@release';
+
+/**
+ * Mihomo/Clash 内核 geo 数据库镜像。
+ *
+ * GEOIP/GEOSITE 规则与 DNS nameserver-policy 的 geosite:* 条目依赖客户端本地的
+ * geoip/geosite 数据库，默认从 GitHub Releases 下载。大陆网络环境下该下载经常失败，
+ * 导致 GEOIP,CN,DIRECT 静默失配、国内流量落入 MATCH 兜底（链式代理场景下全部走代理）。
+ * mihomo / clash premium 均认识 geox-url 字段，其它内核会忽略该未知字段。
+ */
+const METARULES_BASE = 'https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release';
+export const GEOX_URLS = Object.freeze({
+    geoip: `${METARULES_BASE}/geoip.dat`,
+    geosite: `${METARULES_BASE}/geosite.dat`,
+    mmdb: `${METARULES_BASE}/country.mmdb`,
+    asn: `${METARULES_BASE}/GeoLite2-ASN.mmdb`,
+});
+
 /**
  * 将 raw.githubusercontent.com 链接重写为 jsDelivr CDN 镜像。
  *
@@ -535,42 +559,66 @@ export function pinRemoteRuleUrl(sourceUrl, options = {}) {
 export const REMOTE_SOURCES = {
     ADS: {
         name: '广告拦截',
-        clash: `${ACL4SSR_BASE}/Clash/Providers/BanAD.yaml`,
+        clash: `${BLACKMATRIX_BASE}/rule/Clash/AdvertisingLite/AdvertisingLite.list`,
+        // provider: Clash 系 rule-providers 元数据。format 'text' 表示纯文本规则，
+        // mihomo/Stash 支持；behavior/扩展名需与列表实际内容匹配，否则内核解析失败。
+        provider: { behavior: 'classical', format: 'text', ext: 'list' },
         singbox: `${SING_GEOSITE_BASE}/geosite-category-ads-all.srs`,
-        surge: `${ACL4SSR_BASE}/Clash/BanAD.list`,
+        surge: `${BLACKMATRIX_BASE}/rule/Surge/AdvertisingLite/AdvertisingLite.list`,
         quanx: `${ACL4SSR_BASE}/Clash/BanAD.list`,
     },
     STREAM: {
         name: '流媒体',
-        clash: `${ACL4SSR_BASE}/Clash/Providers/Ruleset/Netflix.yaml`,
+        clash: `${BLACKMATRIX_BASE}/rule/Clash/Netflix/Netflix.list`,
+        provider: { behavior: 'classical', format: 'text', ext: 'list' },
         singbox: `${SING_GEOSITE_BASE}/geosite-netflix.srs`,
-        surge: `${ACL4SSR_BASE}/Clash/Netflix.list`,
+        surge: `${BLACKMATRIX_BASE}/rule/Surge/Netflix/Netflix.list`,
     },
     SOCIAL: {
         name: '社交媒体',
-        clash: `${ACL4SSR_BASE}/Clash/Providers/Ruleset/Telegram.yaml`,
+        // Loyalsoldier 的 telegramcidr 是 Telegram 官方网段的 IP 集合（含语音通话），
+        // payload 为可被 YAML 解析的纯域名/CIDR 列表，新旧 Clash 内核均可用。
+        clash: `${LOYALSOLDIER_CLASH_BASE}/telegramcidr.txt`,
+        provider: { behavior: 'ipcidr', ext: 'txt' },
         singbox: `${SING_GEOSITE_BASE}/geosite-telegram.srs`,
-        surge: `${ACL4SSR_BASE}/Clash/Telegram.list`,
+        surge: `${LOYALSOLDIER_SURGE_BASE}/telegramcidr.txt`,
     },
     APPLE: {
         name: '苹果服务',
-        clash: `${ACL4SSR_BASE}/Clash/Providers/Ruleset/Apple.yaml`,
+        clash: `${LOYALSOLDIER_CLASH_BASE}/apple.txt`,
+        provider: { behavior: 'domain', ext: 'txt' },
         singbox: `${SING_GEOSITE_BASE}/geosite-apple.srs`,
-        surge: `${ACL4SSR_BASE}/Clash/Apple.list`,
+        surge: `${LOYALSOLDIER_SURGE_BASE}/apple.txt`,
+        quanx: `${ACL4SSR_BASE}/Clash/Apple.list`,
     },
     MICROSOFT: {
         name: '微软服务',
-        clash: `${ACL4SSR_BASE}/Clash/Providers/Ruleset/Microsoft.yaml`,
+        clash: `${BLACKMATRIX_BASE}/rule/Clash/Microsoft/Microsoft.list`,
+        provider: { behavior: 'classical', format: 'text', ext: 'list' },
         singbox: `${SING_GEOSITE_BASE}/geosite-microsoft.srs`,
-        surge: `${ACL4SSR_BASE}/Clash/Microsoft.list`,
+        surge: `${BLACKMATRIX_BASE}/rule/Surge/Microsoft/Microsoft.list`,
         quanx: `${ACL4SSR_BASE}/Clash/Microsoft.list`,
     },
     AI: {
         name: '智能 AI',
-        clash: `${ACL4SSR_BASE}/Clash/Providers/Ruleset/OpenAi.yaml`,
+        clash: `${BLACKMATRIX_BASE}/rule/Clash/OpenAI/OpenAI.list`,
+        provider: { behavior: 'classical', format: 'text', ext: 'list' },
         singbox: `${SING_GEOSITE_BASE}/geosite-openai.srs`,
-        surge: `${ACL4SSR_BASE}/Clash/Ruleset/OpenAi.list`,
+        surge: `${BLACKMATRIX_BASE}/rule/Surge/OpenAI/OpenAI.list`,
         quanx: `${ACL4SSR_BASE}/Clash/Ruleset/OpenAi.list`,
+    },
+    // 国内域名直连（域名维度）。此前四个内置等级只有 IP 维度的 GEOIP,CN,DIRECT，
+    // 在 fake-ip + respect-rules 下依赖客户端先解析出真实 IP，一旦 geo 数据库
+    // 下载失败，国内流量会整体落入 MATCH 兜底（链式代理下即走代理）。
+    // Loyalsoldier direct.txt 是可被 YAML 解析的域名集合，全系列 Clash 内核可用。
+    CN_DOMAIN: {
+        name: '国内域名直连',
+        clash: `${LOYALSOLDIER_CLASH_BASE}/direct.txt`,
+        provider: { behavior: 'domain', ext: 'txt' },
+        // sing-box 复用 DNS 分流已下载的 geosite-cn 规则集，避免同一文件重复下载
+        tag: SINGBOX_CN_RULE_SET,
+        singbox: `${SING_GEOSITE_BASE}/geosite-cn.srs`,
+        surge: `${LOYALSOLDIER_SURGE_BASE}/direct.txt`,
     },
     'geoip-cn': {
         name: 'China IP (GeoIP)',
@@ -592,6 +640,8 @@ export const RULE_SETS = {
         `DOMAIN-SUFFIX,google.com,${DEFAULT_SELECT_GROUP}`,
         `DOMAIN-KEYWORD,google,${DEFAULT_SELECT_GROUP}`,
         `DOMAIN-SUFFIX,github.com,${DEFAULT_SELECT_GROUP}`,
+        'RULE-SET,CN_DOMAIN,DIRECT',
+        'DOMAIN-SUFFIX,cn,DIRECT',
         'GEOIP,CN,DIRECT',
         `MATCH,${DEFAULT_SELECT_GROUP}`,
     ],
@@ -604,6 +654,8 @@ export const RULE_SETS = {
         'RULE-SET,MICROSOFT,Ⓜ️ Microsoft',
         `DOMAIN-SUFFIX,google.com,${DEFAULT_SELECT_GROUP}`,
         `DOMAIN-SUFFIX,github.com,${DEFAULT_SELECT_GROUP}`,
+        'RULE-SET,CN_DOMAIN,DIRECT',
+        'DOMAIN-SUFFIX,cn,DIRECT',
         'GEOIP,CN,DIRECT',
         `MATCH,${DEFAULT_SELECT_GROUP}`,
     ],
@@ -617,6 +669,8 @@ export const RULE_SETS = {
         'RULE-SET,MICROSOFT,Ⓜ️ Microsoft',
         `DOMAIN-SUFFIX,google.com,${DEFAULT_SELECT_GROUP}`,
         `DOMAIN-SUFFIX,github.com,${DEFAULT_SELECT_GROUP}`,
+        'RULE-SET,CN_DOMAIN,DIRECT',
+        'DOMAIN-SUFFIX,cn,DIRECT',
         'GEOIP,CN,DIRECT',
         `MATCH,${DEFAULT_SELECT_GROUP}`,
     ],
@@ -629,6 +683,8 @@ export const RULE_SETS = {
         'RULE-SET,MICROSOFT,Ⓜ️ Microsoft',
         `DOMAIN-SUFFIX,google.com,${DEFAULT_RELAY_GROUP}`,
         `DOMAIN-SUFFIX,github.com,${DEFAULT_RELAY_GROUP}`,
+        'RULE-SET,CN_DOMAIN,DIRECT',
+        'DOMAIN-SUFFIX,cn,DIRECT',
         'GEOIP,CN,DIRECT',
         `MATCH,${DEFAULT_RELAY_GROUP}`,
     ],
@@ -656,13 +712,19 @@ export function translateRuleLine(line, format) {
                 return { type: 'rule-provider', provider: value, target };
             case 'singbox':
             case 'sing-box':
-                // 返回中间对象，由生成器处理 rule_sets
-                return { type: 'rule_set', tag: value, outbound: target };
+                // 复用声明的 tag（如 CN_DOMAIN → geosite-cn），让 DNS 分流与路由共享同一规则集下载
+                return { type: 'rule_set', tag: source.tag || value, outbound: target };
             case 'surge':
             case 'loon':
+                // 仅当源提供 Surge/Loon 兼容列表时输出；否则跳过并交给 GEOIP,CN 兜底
+                // （如仅 sing-box 使用的 geosite/geoip .srs 源，直接输出会产生无效引用）
+                if (!source.surge && !source.clash) return null;
                 return `RULE-SET,${source.surge || source.clash},${target}`;
             case 'quanx':
-                return `filter_remote, ${source.quanx || source.clash}, tag=${source.name}, force-policy=${target}, update-interval=86400`;
+                // Quantumult X 只认 filter 语法，必须使用显式的 quanx 源，
+                // 禁止回退到 clash URL（YAML / 域名集合对 QuanX 是无效输入）
+                if (!source.quanx) return null;
+                return `filter_remote, ${source.quanx}, tag=${source.name}, force-policy=${target}, update-interval=86400`;
             default:
                 return null;
         }
@@ -724,12 +786,16 @@ export function getRemoteProviderDefinitions(format, ruleLines) {
         if (!source) return;
 
         if (format === 'clash') {
+            // 各规则集的内容形态不同（classical 文本 / domain / ipcidr），
+            // behavior 与格式由 REMOTE_SOURCES.provider 元数据声明，避免内核解析失败
+            const provider = source.provider || {};
             providers[tag] = {
                 type: 'http',
-                behavior: 'classical',
+                behavior: provider.behavior || 'classical',
                 url: pinRemoteRuleUrl(source.clash),
-                path: `./ruleset/${tag}.yaml`,
+                path: `./ruleset/${tag}.${provider.ext || 'yaml'}`,
                 interval: 86400,
+                ...(provider.format ? { format: provider.format } : {}),
             };
         } else if (format === 'singbox' || format === 'sing-box') {
             providers[tag] = {

@@ -351,12 +351,17 @@ describe('Surge 内置生成器', () => {
         it('应包含高级分流规则', () => {
             const ss = 'ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:8388#TestSS';
             const result = generateBuiltinSurgeConfig(ss);
+            // ACL4SSR 已被 jsDelivr 全局封禁(403)，远程规则应指向可直连的镜像源
             expect(result).toContain(
-                `RULE-SET,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/${PINNED_RULE_REVISIONS.ACL4SSR}/Clash/Apple.list,🍎 Apple`
+                'RULE-SET,https://cdn.jsdelivr.net/gh/Loyalsoldier/surge-rules@release/apple.txt,🍎 Apple'
             );
             expect(result).toContain(
-                `RULE-SET,https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/${PINNED_RULE_REVISIONS.ACL4SSR}/Clash/Netflix.list,🎥 流媒体`
+                `RULE-SET,https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script/${PINNED_RULE_REVISIONS.BLACKMATRIX}/rule/Surge/Netflix/Netflix.list,🎥 流媒体`
             );
+            expect(result).toContain(
+                'RULE-SET,https://cdn.jsdelivr.net/gh/Loyalsoldier/surge-rules@release/direct.txt,DIRECT'
+            );
+            expect(result).toContain('DOMAIN-SUFFIX,cn,DIRECT');
             expect(result).toContain('GEOIP,CN,DIRECT');
             expect(result).toContain('FINAL,🚀 节点选择,dns-failed');
         });

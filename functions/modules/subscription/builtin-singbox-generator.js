@@ -364,6 +364,8 @@ export function generateBuiltinSingboxConfig(nodeList, options = {}) {
     ];
 
     // 转换路由规则：将中间对象映射为 Sing-Box 语法
+    // （国内域名直连由规则集内的 RULE-SET,CN_DOMAIN/DOMAIN-SUFFIX,cn 在 GEOIP 之前承载，
+    // 不再在末尾追加兜底 .cn 规则，保证与其它平台的分流顺序一致）
     const routeRules = [
         {
             ip_cidr: ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'],
@@ -374,7 +376,6 @@ export function generateBuiltinSingboxConfig(nodeList, options = {}) {
             if (r.type === 'rule_set') return { rule_set: [r.tag], outbound: r.outbound };
             return r; // 已经是 Sing-Box 格式的普通规则
         }),
-        { domain_suffix: ['cn'], outbound: 'DIRECT' },
     ];
 
     const dnsConfig = buildSingboxDnsConfig(options.customDnsOverride || '', {

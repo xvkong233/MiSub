@@ -709,14 +709,27 @@ custom_proxy_group=TestGroup`;
                 String(url).includes('/Clash/Providers/Ruleset/YouTube.yaml')
             )
         ).toBe(true);
+        // 国内直连等关键规则源已换到 jsDelivr 可直连的维护源（ACL4SSR 已被 jsDelivr 封禁）
         expect(
-            providerUrls.some((url) => String(url).includes('/Clash/Providers/ProxyGFWlist.yaml'))
+            providerUrls.some((url) =>
+                String(url).includes('gh/Loyalsoldier/clash-rules@release/direct.txt')
+            )
         ).toBe(true);
-        expect(providerUrls.some((url) => String(url).includes('/Clash/BanAD.list'))).toBe(true);
         expect(
             Object.values(providers).some(
                 (provider) =>
-                    provider.url.includes('/Clash/BanAD.list') && provider.format === 'text'
+                    provider.url.includes('Loyalsoldier/clash-rules@release/direct.txt') &&
+                    provider.behavior === 'domain'
+            )
+        ).toBe(true);
+        expect(
+            providerUrls.some((url) => String(url).includes('AdvertisingLite/AdvertisingLite.list'))
+        ).toBe(true);
+        expect(
+            Object.values(providers).some(
+                (provider) =>
+                    provider.url.includes('AdvertisingLite/AdvertisingLite.list') &&
+                    provider.format === 'text'
             )
         ).toBe(true);
     });
