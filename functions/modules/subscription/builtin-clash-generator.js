@@ -178,7 +178,7 @@ export function generateBuiltinClashConfig(nodeList, options = {}) {
         const levelKey = (ruleLevel || 'std').toUpperCase();
         const rawRules = isHiddifyClient
             ? ['MATCH,🚀 节点选择']
-            : getBuiltinRules(levelKey, 'clash');
+            : getBuiltinRules(levelKey, 'clash', options);
 
         // 生成策略组并执行引用修剪
         const policyGroupsFactory = POLICY_GROUPS[levelKey] || POLICY_GROUPS.STD;
@@ -189,7 +189,7 @@ export function generateBuiltinClashConfig(nodeList, options = {}) {
         // 自动识别为 Hiddify 时降级为纯 MATCH 规则，避免导入时报 unable to determine config format。
         const ruleProviders = isHiddifyClient
             ? {}
-            : getRemoteProviderDefinitions('clash', rawRules);
+            : getRemoteProviderDefinitions('clash', rawRules, options);
 
         // 转换规则行为最终字符串
         const clashRules = rawRules

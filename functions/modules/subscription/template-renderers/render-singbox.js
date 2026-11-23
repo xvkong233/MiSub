@@ -340,7 +340,7 @@ function detectRuleSetFormat(url) {
     return raw.endsWith('.srs') ? 'binary' : 'source';
 }
 
-function buildRuleSets(rules) {
+function buildRuleSets(rules, { isChinaClient = false } = {}) {
     const remoteRuleSets = rules
         .filter(
             (rule) =>
@@ -350,7 +350,7 @@ function buildRuleSets(rules) {
             tag: sanitizeTag(`${rule.policy}_${rule.value}`),
             type: 'remote',
             format: detectRuleSetFormat(rule.value),
-            url: pinRemoteRuleUrl(rule.value),
+            url: pinRemoteRuleUrl(rule.value, { isChinaClient }),
             update_interval: '24h',
             download_detour: DNS_PROXY_GROUP,
         }));
@@ -404,7 +404,7 @@ export function renderSingboxFromTemplateModel(model, options = {}) {
     );
     const ruleSetObjects = [
         getSingboxDnsRuleSet(),
-        ...buildRuleSets(normalizedModel.rules).filter(
+        ...buildRuleSets(normalizedModel.rules, { isChinaClient: options.isChinaClient }).filter(
             (ruleSet) => ruleSet.tag !== SINGBOX_CN_RULE_SET
         ),
     ];

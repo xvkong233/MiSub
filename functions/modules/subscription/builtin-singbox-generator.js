@@ -355,10 +355,10 @@ export function generateBuiltinSingboxConfig(nodeList, options = {}) {
     });
 
     // 从统一规则库获取分流规则
-    const rawRules = getBuiltinRules(levelKey, 'singbox');
+    const rawRules = getBuiltinRules(levelKey, 'singbox', options);
 
     // 提取远程 Rule Set 定义 (Sing-Box 格式)
-    const ruleSetsMap = getRemoteProviderDefinitions('singbox', rawRules);
+    const ruleSetsMap = getRemoteProviderDefinitions('singbox', rawRules, options);
     const ruleSets = [
         getSingboxDnsRuleSet(),
         ...Object.values(ruleSetsMap).filter((ruleSet) => ruleSet.tag !== SINGBOX_CN_RULE_SET),

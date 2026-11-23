@@ -4,6 +4,8 @@ import {
     getBuiltinRules,
     getRemoteProviderDefinitions,
     GEOX_URLS,
+    GH_PROXY_BASE,
+    PINNED_RULE_REVISIONS,
 } from '../../functions/modules/subscription/builtin-rules-provider.js';
 import { generateBuiltinClashConfig } from '../../functions/modules/subscription/builtin-clash-generator.js';
 import { generateBuiltinSingboxConfig } from '../../functions/modules/subscription/builtin-singbox-generator.js';
@@ -11,6 +13,7 @@ import yaml from 'js-yaml';
 
 const LEVELS = ['BASE', 'STD', 'FULL', 'RELAY'];
 const SAMPLE_NODES = 'ss://YWVzLTEyOC1nY206cGFzcw@example.com:8388#HKNode';
+const ACL4SSR_CN_DOMAIN = `https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/${PINNED_RULE_REVISIONS.ACL4SSR}/Clash/ChinaDomain.list`;
 
 function indexOfRule(rules, predicate) {
     return rules.findIndex(predicate);
@@ -44,17 +47,28 @@ describe('内置规则 - 国内直连（域名维度 + IP 维度）', () => {
         const providers = getRemoteProviderDefinitions('clash', rules);
         expect(providers.CN_DOMAIN).toMatchObject({
             type: 'http',
-            behavior: 'domain',
-            url: 'https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/direct.txt',
+            behavior: 'classical',
+            format: 'text',
+            url: ACL4SSR_CN_DOMAIN,
         });
-        // domain 行为的 payload 本身是 YAML 可解析集合，无需声明 text 格式
-        expect(providers.CN_DOMAIN).not.toHaveProperty('format');
-        expect(providers.CN_DOMAIN.path).toBe('./ruleset/CN_DOMAIN.txt');
+        expect(providers.CN_DOMAIN.path).toBe('./ruleset/CN_DOMAIN.list');
+    });
 
-        // 已死的 ACL4SSR jsDelivr 源（403 封禁）不应再出现在任何 provider 中
-        Object.values(providers).forEach((provider) => {
-            expect(provider.url).not.toContain('ACL4SSR');
-        });
+    it('国内请求方的规则源走 gh-proxy.org 加速', () => {
+        const rules = getBuiltinRules('RELAY', 'clash', { isChinaClient: true });
+        const providers = getRemoteProviderDefinitions('clash', rules, { isChinaClient: true });
+
+        expect(providers.CN_DOMAIN.url).toBe(`${GH_PROXY_BASE}${ACL4SSR_CN_DOMAIN}`);
+        expect(providers.ADS.url).toContain(GH_PROXY_BASE);
+
+        const surgeRules = getBuiltinRules('RELAY', 'surge', { isChinaClient: true });
+        expect(surgeRules).toContain(
+            `RULE-SET,${GH_PROXY_BASE}${ACL4SSR_CN_DOMAIN},DIRECT`
+        );
+
+        // 国外请求方保持 raw 直连
+        const foreignRules = getBuiltinRules('RELAY', 'surge');
+        expect(foreignRules).toContain(`RULE-SET,${ACL4SSR_CN_DOMAIN},DIRECT`);
     });
 
     it('Clash 翻译后的规则行按 CN → GEOIP → MATCH 顺序输出', () => {
@@ -99,10 +113,10 @@ describe('内置规则 - 国内直连（域名维度 + IP 维度）', () => {
         expect(Object.keys(providers).filter((tag) => tag === 'geosite-cn')).toHaveLength(1);
     });
 
-    it('Surge/Loon 翻译：CN_DOMAIN 指向可直连的 Surge 列表，且不产生 undefined 引用', () => {
+    it('Surge/Loon 翻译：CN_DOMAIN 指向 ACL4SSR 国内域名列表，且不产生 undefined 引用', () => {
         for (const format of ['surge', 'loon']) {
             const rules = getBuiltinRules('RELAY', format);
-            expect(rules).toContain('RULE-SET,https://cdn.jsdelivr.net/gh/Loyalsoldier/surge-rules@release/direct.txt,DIRECT');
+            expect(rules).toContain(`RULE-SET,${ACL4SSR_CN_DOMAIN},DIRECT`);
             expect(rules).toContain('DOMAIN-SUFFIX,cn,DIRECT');
             rules.forEach((rule) => {
                 expect(rule).not.toContain('undefined');
@@ -114,7 +128,9 @@ describe('内置规则 - 国内直连（域名维度 + IP 维度）', () => {
         const rules = getBuiltinRules('STD', 'quanx');
         rules.forEach((rule) => {
             if (rule.startsWith('filter_remote')) {
-                expect(rule).not.toContain('direct.txt');
+                // ACL4SSR Clash 列表为 QuanX 兼容的 classical 文本，其余源不得混入
+                expect(rule).toContain('raw.githubusercontent.com/ACL4SSR');
+                expect(rule).not.toContain('.yaml');
             }
         });
         expect(rules).toContain('HOST-SUFFIX, cn, DIRECT');
@@ -145,11 +161,30 @@ describe('内置生成器 - 国内直连兜底能力', () => {
         expect(cnTldIdx).toBeLessThan(geoipIdx);
         expect(geoipIdx).toBeLessThan(matchIdx);
 
-        // 国内域名规则集的 rule-provider 定义应存在且为 domain 行为
+        // 国内域名规则集的 rule-provider 定义应存在（国外请求方走 raw 直连）
         expect(config['rule-providers'].CN_DOMAIN).toMatchObject({
-            behavior: 'domain',
-            url: 'https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/direct.txt',
+            behavior: 'classical',
+            format: 'text',
+            url: ACL4SSR_CN_DOMAIN,
         });
+    });
+
+    it('国内请求方生成的 Clash 配置规则源全部经 gh-proxy 加速', () => {
+        const config = yaml.load(
+            generateBuiltinClashConfig(SAMPLE_NODES, {
+                ruleLevel: 'relay',
+                isMeta: true,
+                isChinaClient: true,
+            })
+        );
+        const providerUrls = Object.values(config['rule-providers'] || {}).map((p) => p.url);
+
+        expect(providerUrls.length).toBeGreaterThan(0);
+        for (const url of providerUrls) {
+            expect(url.startsWith(`${GH_PROXY_BASE}https://raw.githubusercontent.com/`)).toBe(
+                true
+            );
+        }
     });
 
     it('sing-box 配置：geosite-cn 直连规则在 geoip-cn 之前，且不再重复追加 .cn 兜底', () => {
@@ -178,7 +213,7 @@ describe('内置生成器 - 国内直连兜底能力', () => {
         expect(parsed.route.rule_set.filter((rs) => rs.tag === 'geosite-cn')).toHaveLength(1);
     });
 
-    it('GEOX_URLS 全部指向 jsDelivr 镜像', () => {
+    it('GEOX_URLS 全部指向 jsDelivr 镜像（geo 数据库不受 ACL4SSR 封禁影响）', () => {
         Object.values(GEOX_URLS).forEach((url) => {
             expect(url).toContain('https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/');
             expect(url).not.toContain('github.com');
