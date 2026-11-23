@@ -4,6 +4,7 @@ import { normalizeUnifiedTemplateModel } from '../template-model.js';
 import { DNS_PROXY_GROUP, resolveSafeDnsConfig } from '../safe-dns.js';
 import { applyMihomoChainProxy } from '../mihomo-chain-proxy.js';
 import { GEOX_URLS } from '../builtin-rules-provider.js';
+import { DEFAULT_SNIFFER_CONFIG } from '../sniffing-config.js';
 
 function mapGroupType(type) {
     const normalized = String(type || '')
@@ -256,6 +257,8 @@ export function renderClashFromTemplateModel(model) {
         'external-controller': '127.0.0.1:9090',
         // GEO 数据库走 jsDelivr 镜像，保证模板中 GEOIP/GEOSITE 规则与 geosite:* DNS 策略在大陆可用
         'geox-url': { ...GEOX_URLS },
+        // 域名嗅探：还原硬编码 IP 直连流量的真实域名，命中模板中的域名分流规则
+        sniffer: { ...DEFAULT_SNIFFER_CONFIG },
         dns: resolveSafeDnsConfig(normalizedModel.settings?.customDnsOverride, {
             mode: normalizedModel.settings?.dnsMode,
             proxyGroup: DNS_PROXY_GROUP,

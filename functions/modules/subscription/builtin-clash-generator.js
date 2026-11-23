@@ -8,6 +8,7 @@ import { urlsToClashProxies } from '../../utils/url-to-clash.js';
 import { getUniqueName } from './name-utils.js';
 import { isMetaCore } from './user-agent-utils.js';
 import { DNS_PROXY_GROUP, resolveSafeDnsConfig } from './safe-dns.js';
+import { DEFAULT_SNIFFER_CONFIG } from './sniffing-config.js';
 import {
     POLICY_GROUPS,
     RULE_SETS,
@@ -232,6 +233,9 @@ export function generateBuiltinClashConfig(nodeList, options = {}) {
             // GEOIP/GEOSITE 规则与 geosite:* DNS 策略依赖的 geo 数据库改走 jsDelivr 镜像，
             // 避免默认 GitHub 地址在大陆不可达时 GEOIP,CN,DIRECT 静默失效、国内流量走代理
             'geox-url': { ...GEOX_URLS },
+
+            // 域名嗅探：还原硬编码 IP 直连流量（Telegram/Google 系）的真实域名，命中域名分流规则
+            sniffer: { ...DEFAULT_SNIFFER_CONFIG },
 
             dns: dnsConfig,
 

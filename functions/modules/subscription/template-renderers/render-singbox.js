@@ -2,6 +2,7 @@ import { urlsToClashProxies } from '../../../utils/url-to-clash.js';
 import { normalizeUnifiedTemplateModel } from '../template-model.js';
 import { buildSingboxDnsConfig, DNS_PROXY_GROUP, SINGBOX_CN_RULE_SET } from '../safe-dns.js';
 import { getSingboxDnsRuleSet, pinRemoteRuleUrl } from '../builtin-rules-provider.js';
+import { SINGBOX_SNIFF_RULE } from '../sniffing-config.js';
 
 function sanitizeTag(value) {
     return String(value || '').trim() || 'Untitled';
@@ -407,7 +408,11 @@ export function renderSingboxFromTemplateModel(model, options = {}) {
             (ruleSet) => ruleSet.tag !== SINGBOX_CN_RULE_SET
         ),
     ];
-    const routeRules = normalizedModel.rules.map(mapRuleToSingbox).filter(Boolean);
+    // 首条为域名嗅探：还原硬编码 IP 直连流量的真实域名后再进入模板分流规则
+    const routeRules = [
+        SINGBOX_SNIFF_RULE,
+        ...normalizedModel.rules.map(mapRuleToSingbox).filter(Boolean),
+    ];
     const defaultOutbound =
         normalizedModel.groups.find((group) => group.name !== DNS_PROXY_GROUP)?.name || 'DIRECT';
     const dnsConfig = buildSingboxDnsConfig(normalizedModel.settings?.customDnsOverride, {
